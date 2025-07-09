@@ -5,6 +5,8 @@ import gspread
 from gspread_dataframe import set_with_dataframe
 from oauth2client.service_account import ServiceAccountCredentials
 import io
+import os
+from pytz import timezone
 
 # Load user info and sample order
 @st.cache_data
@@ -24,6 +26,15 @@ def append_to_google_sheet(dataframe, sheet_id):
     updated = pd.concat([existing, dataframe], ignore_index=True)
     worksheet.clear()
     set_with_dataframe(worksheet, updated)
+
+# Ghi file cục bộ vào C:\Web\Dữ liệu
+def save_to_local_folder(dataframe, username):
+    folder_path = r"C:\\Web\\Dữ liệu"
+    os.makedirs(folder_path, exist_ok=True)
+    filename = f"ket_qua_{username}.xlsx"
+    full_path = os.path.join(folder_path, filename)
+    dataframe.to_excel(full_path, index=False)
+    return full_path
 
 # Main app
 user_df = load_user_data()
@@ -54,60 +65,166 @@ if not st.session_state.logged_in:
 else:
     st.success(f"Chào mừng {st.session_state.user}!")
 
-    # Lấy thứ tự mẫu
-    user_order_str = user_df[user_df.username == st.session_state.user]["order"].values[0]
-    sample_codes = [code.strip() for code in user_order_str.split("–")]
+    # Lấy thông tin người dùng
+    if "user_info_collected" not in st.session_state:
+        st.subheader("Thông tin người tham gia")
+        full_name = st.text_input("Họ và tên:")
+        gender = st.selectbox("Giới tính:", ["Nam", "Nữ", "Khác"])
+        age = st.number_input("Tuổi:", min_value=1, max_value=100, step=1)
 
-    if "current_sample_index" not in st.session_state:
-        st.session_state.current_sample_index = 0
-        st.session_state.partial_results = []
+        occupation_options = [
+            "Sinh viên",
+            "Nhân viên văn phòng",
+            "Doanh nhân",
+            "Lao động tự do",
+            "Nghề nghiệp khác (vui lòng ghi rõ):"
+        ]
+        occupation = st.radio("Nghề nghiệp của bạn là gì?", occupation_options)
 
-    if st.session_state.current_sample_index < len(sample_codes):
-        sample = sample_codes[st.session_state.current_sample_index]
-        st.subheader(f"Đánh giá mẫu: {sample}")
-        rating = {
-            "sample": sample,
-            "username": st.session_state.user,
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        }
-        for attr in ["Màu sắc", "Hương sản phẩm", "Vị ngọt", "Vị chua", "Vị đắng", "Vị chát", "Hậu vị"]:
-            rating[attr] = st.slider(f"{attr} (1-100)", 1, 100, 50, key=f"{sample}_{attr}")
-
-        preference = st.radio("Ưa thích chung", options=[
-            "1 - Cực kỳ không thích",
-            "2", "3", "4",
-            "5 - Không thích cũng không ghét",
-            "6", "7", "8",
-            "9 - Cực kỳ thích"
-        ], key=f"{sample}_pref")
-        rating["Ưa thích chung"] = int(preference.split(" ")[0])
+        frequency_options = [
+            "6 lần/ tuần",
+            "5 lần/ tuần",
+            "4 lần/ tuần",
+            "3 lần/ tuần",
+            "2 lần/tuần",
+            "1 lần/ tuần",
+            "ít hơn 1 lần/ tuần"
+        ]
+        frequency = st.radio("Tần suất sử dụng nước tăng lực đóng lon của bạn?", frequency_options)
 
         if st.button("Tiếp tục"):
-            st.session_state.partial_results.append(rating)
-            st.session_state.current_sample_index += 1
-            st.rerun()
+                st.experimental_rerun()  # Cuộn về đầu trang khi đánh giá mẫu mới
+                if "Ưa thích chung" not in rating:
+                    st.error("❌ Vui lòng chọn mức độ ưa thích chung trước khi tiếp tục.")
+                else:
+                    st.session_state.partial_results.append(rating)
+                    st.session_state.current_sample_index += 1
+                    st.rerun()
+    if not full_name or not occupation or not frequency:
+        st.error("❌ Vui lòng điền đầy đủ tất cả thông tin trước khi tiếp tục.")
     else:
-        st.success("✅ Bạn đã hoàn thành tất cả các mẫu!")
-        df_results = pd.DataFrame(st.session_state.partial_results)
-        output_file = f"ket_qua_{st.session_state.user}.xlsx"
-        df_results.to_excel(output_file, index=False)
+        st.session_state.full_name = full_name
+        st.session_state.gender = gender
+        st.session_state.age = age
+        st.session_state.occupation = occupation
+        st.session_state.frequency = frequency
+        st.session_state.user_info_collected = True
+        st.session_state.show_instruction = True
+        st.rerun()
+            if not full_name or not occupation or not frequency:
+                st.error("❌ Vui lòng điền đầy đủ tất cả thông tin trước khi tiếp tục.")
+            else:
+                st.session_state.full_name = full_name
+                st.session_state.gender = gender
+                st.session_state.age = age
+                st.session_state.occupation = occupation
+                st.session_state.frequency = frequency
+                st.session_state.user_info_collected = True
+                st.rerun()
+    elif st.session_state.get("show_instruction"):
+    st.markdown("""
+    <h2 style='text-align: center;'>Hướng dẫn cảm quan</h2>
+    <p>Anh/Chị sẽ được nhận các mẫu nước tăng lực được gán mã số, vui lòng đánh giá lần lượt các mẫu từ trái sang phải theo thứ tự đã cung cấp. Anh/Chị vui lòng đánh giá mỗi mẫu theo trình tự sau:</p>
+    <ol>
+        <li>Dùng thử sản phẩm và đánh giá cường độ các tính chất <b>MÀU SẮC</b>, <b>MÙI</b> và <b>HƯƠNG VỊ</b>.</li>
+        <li>Cho biết cường độ của mỗi tính chất mà anh/chị cho là lý tưởng (cường độ mà anh/chị mong muốn cho sản phẩm nước tăng lực này).</li>
+        <li>Nếu cường độ tính chất của mẫu phù hợp với mong muốn của anh/chị, vui lòng chọn cường độ lý tưởng bằng với cường độ tính chất của mẫu.</li>
+        <li>Cho biết độ ưa thích chung đối với mẫu sản phẩm này.</li>
+    </ol>
+    <p><b style='color:red;'>LƯU Ý:</b></p>
+    <ul>
+        <li>Anh/chị lưu ý sử dụng nước và bánh để thanh vị trước và sau mỗi mẫu thử.</li>
+        <li>Anh/chị vui lòng không trao đổi trong quá trình đánh giá mẫu.</li>
+        <li>Anh/chị vui lòng liên hệ với thực nghiệm viên nếu có bất kì thắc mắc nào trong quá trình đánh giá.</li>
+    </ul>
+    """, unsafe_allow_html=True)
 
-        # Ghi vào Google Sheet
-        try:
-            sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
-            append_to_google_sheet(df_results, sheet_id)
-            st.success("✅ Đã lưu kết quả vào Google Sheet!")
-        except Exception as e:
-            st.error(f"❌ Lỗi khi ghi vào Google Sheet: {e}")
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("⬅ Quay lại"):
+            st.session_state.show_instruction = False
+            st.session_state.user_info_collected = False
+            st.rerun()
+    with col2:
+        if st.button("Bắt đầu"):
+            st.session_state.show_instruction = False
+            st.rerun()
+        st.session_state.show_instruction = False
+        st.rerun()
 
-        # Cho phép tải file Excel nếu cần
-        towrite = io.BytesIO()
-        df_results.to_excel(towrite, index=False, engine='openpyxl')
-        towrite.seek(0)
-        st.download_button(
-            label="📥 Tải kết quả về máy",
-            data=towrite,
-            file_name=output_file,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+else:
+    # Lấy thứ tự mẫu
+        user_order_str = user_df[user_df.username == st.session_state.user]["order"].values[0]
+        sample_codes = [code.strip() for code in user_order_str.split("–")]
 
+        if "current_sample_index" not in st.session_state:
+            st.session_state.current_sample_index = 0
+            st.session_state.partial_results = []
+
+        if st.session_state.current_sample_index < len(sample_codes):
+            sample = sample_codes[st.session_state.current_sample_index]
+            st.subheader(f"Đánh giá mẫu: {sample}")
+            rating = {
+                "sample": sample,
+                "username": st.session_state.user,
+                "full_name": st.session_state.full_name,
+                "gender": st.session_state.gender,
+                "age": st.session_state.age,
+                "occupation": st.session_state.occupation,
+                "frequency": st.session_state.frequency,
+                "timestamp": datetime.now(timezone("Asia/Ho_Chi_Minh")).strftime("%Y-%m-%d %H:%M:%S")
+            }
+            for attr in ["Màu sắc", "Hương sản phẩm", "Vị ngọt", "Vị chua", "Vị đắng", "Vị chát", "Hậu vị"]:
+                with st.container():
+                    st.markdown(f"### 🔸 {attr}")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        rating[f"{attr} - Cường độ mẫu"] = st.slider("Cường độ trong mẫu (1-100)", 1, 100, key=f"{sample}_{attr}_sample")
+                    with col2:
+                        rating[f"{attr} - Cường độ lý tưởng"] = st.slider("Cường độ lý tưởng (1-100)", 1, 100, key=f"{sample}_{attr}_ideal")
+                    st.markdown("<hr style='margin-top: 0.5rem; margin-bottom: 1rem;'>", unsafe_allow_html=True)
+
+            preference = st.radio("Ưa thích chung", options=[
+                "1 - Cực kỳ không thích",
+                "2 - Rất không thích",
+                "3 - Không thích",
+                "4 - Tương đối không thích",
+                "5 - Không thích cũng không ghét",
+                "6 - Tương đối thích",
+                "7 - Thích",
+                "8 - Rất thích",
+                "9 - Cực kỳ thích"
+            ], key=f"{sample}_pref")
+            if preference:
+                rating["Ưa thích chung"] = int(preference.split(" ")[0])
+
+            if st.button("Tiếp tục"):
+                st.session_state.partial_results.append(rating)
+                st.session_state.current_sample_index += 1
+                st.rerun()
+        else:
+            st.success("✅ Bạn đã hoàn thành tất cả các mẫu!")
+            df_results = pd.DataFrame(st.session_state.partial_results)
+
+            # Lưu vào thư mục C:\Web\Dữ liệu
+            local_path = save_to_local_folder(df_results, st.session_state.user)
+            st.info(f"📁 Kết quả đã lưu tại: {local_path}")
+
+            # Ghi vào Google Sheet
+            try:
+                sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
+                append_to_google_sheet(df_results, sheet_id)
+                st.success("✅ Đã lưu kết quả vào Google Sheet!")
+            except Exception as e:
+                st.error(f"❌ Lỗi khi ghi vào Google Sheet: {e}")
+
+            # Cho phép tải file Excel nếu cần
+            towrite = io.BytesIO()
+            df_results.to_excel(towrite, index=False, engine='openpyxl')
+            towrite.seek(0)
+            st.download_button(
+                label="📥 Tải kết quả về máy",
+                data=towrite,
+                file_name=f"ket_qua_{st.session_state.user}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
