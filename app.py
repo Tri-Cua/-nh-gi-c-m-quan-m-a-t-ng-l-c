@@ -67,61 +67,51 @@ else:
 
     # Lấy thông tin người dùng
     if "user_info_collected" not in st.session_state:
-        st.subheader("Thông tin người tham gia")
-        full_name = st.text_input("Họ và tên:")
-        gender = st.selectbox("Giới tính:", ["Nam", "Nữ", "Khác"])
-        age = st.number_input("Tuổi:", min_value=1, max_value=100, step=1)
+      st.subheader("Thông tin người tham gia")
+      full_name = st.text_input("Họ và tên:")
+      gender = st.selectbox("Giới tính:", ["Nam", "Nữ", "Khác"])
+      age = st.number_input("Tuổi:", min_value=1, max_value=100, step=1)
 
-        occupation_options = [
-            "Sinh viên",
-            "Nhân viên văn phòng",
-            "Doanh nhân",
-            "Lao động tự do",
-            "Nghề nghiệp khác (vui lòng ghi rõ):"
-        ]
-        occupation = st.radio("Nghề nghiệp của bạn là gì?", occupation_options)
+      occupation_options = [
+        "Sinh viên",
+        "Nhân viên văn phòng",
+        "Doanh nhân",
+        "Lao động tự do",
+        "Nghề nghiệp khác (vui lòng ghi rõ):"
+      ]
+      occupation = st.radio("Nghề nghiệp của bạn là gì?", occupation_options)
 
-        frequency_options = [
-            "6 lần/ tuần",
-            "5 lần/ tuần",
-            "4 lần/ tuần",
-            "3 lần/ tuần",
-            "2 lần/tuần",
-            "1 lần/ tuần",
-            "ít hơn 1 lần/ tuần"
-        ]
-        frequency = st.radio("Tần suất sử dụng nước tăng lực đóng lon của bạn?", frequency_options)
+      frequency_options = [
+        "6 lần/ tuần",
+        "5 lần/ tuần",
+        "4 lần/ tuần",
+        "3 lần/ tuần",
+        "2 lần/tuần",
+        "1 lần/ tuần",
+        "ít hơn 1 lần/ tuần"
+      ]
+      frequency = st.radio("Tần suất sử dụng nước tăng lực đóng lon của bạn?", frequency_options)
 
-        if st.button("Tiếp tục"):
-                st.experimental_rerun()  # Cuộn về đầu trang khi đánh giá mẫu mới
-                if "Ưa thích chung" not in rating:
-                    st.error("❌ Vui lòng chọn mức độ ưa thích chung trước khi tiếp tục.")
-                else:
-                    st.session_state.partial_results.append(rating)
-                    st.session_state.current_sample_index += 1
-                    st.rerun()
-    if not full_name or not occupation or not frequency:
-        st.error("❌ Vui lòng điền đầy đủ tất cả thông tin trước khi tiếp tục.")
-    else:
-        st.session_state.full_name = full_name
-        st.session_state.gender = gender
-        st.session_state.age = age
-        st.session_state.occupation = occupation
-        st.session_state.frequency = frequency
-        st.session_state.user_info_collected = True
-        st.session_state.show_instruction = True
-        st.rerun()
-            if not full_name or not occupation or not frequency:
-                st.error("❌ Vui lòng điền đầy đủ tất cả thông tin trước khi tiếp tục.")
-            else:
-                st.session_state.full_name = full_name
-                st.session_state.gender = gender
-                st.session_state.age = age
-                st.session_state.occupation = occupation
-                st.session_state.frequency = frequency
-                st.session_state.user_info_collected = True
-                st.rerun()
-    elif st.session_state.get("show_instruction"):
+    if st.button("Tiếp tục"):
+        if not full_name or not occupation or not frequency:
+            st.error("❌ Vui lòng điền đầy đủ tất cả thông tin trước khi tiếp tục.")
+        else:
+            st.session_state.full_name = full_name
+            st.session_state.gender = gender
+            st.session_state.age = age
+            st.session_state.occupation = occupation
+            st.session_state.frequency = frequency
+            st.session_state.user_info_collected = True
+            st.session_state.show_instruction = True
+            st.rerun()
+
+        
+    
+            
+    
+    
+
+if  st.session_state.get("show_instruction"):
     st.markdown("""
     <h2 style='text-align: center;'>Hướng dẫn cảm quan</h2>
     <p>Anh/Chị sẽ được nhận các mẫu nước tăng lực được gán mã số, vui lòng đánh giá lần lượt các mẫu từ trái sang phải theo thứ tự đã cung cấp. Anh/Chị vui lòng đánh giá mỗi mẫu theo trình tự sau:</p>
@@ -154,7 +144,11 @@ else:
 
 else:
     # Lấy thứ tự mẫu
-        user_order_str = user_df[user_df.username == st.session_state.user]["order"].values[0]
+        user_row = user_df[user_df.username == st.session_state.user]
+        if user_row.empty:
+            st.error("⚠️ Không tìm thấy thông tin mẫu cho tài khoản này.")
+            st.stop()
+        user_order_str = user_row["order"].values[0]
         sample_codes = [code.strip() for code in user_order_str.split("–")]
 
         if "current_sample_index" not in st.session_state:
@@ -198,10 +192,16 @@ else:
             if preference:
                 rating["Ưa thích chung"] = int(preference.split(" ")[0])
 
-            if st.button("Tiếp tục"):
-                st.session_state.partial_results.append(rating)
-                st.session_state.current_sample_index += 1
-                st.rerun()
+            # Nút tiếp tục được đưa xuống cuối trang
+            if st.button("Tiếp tục", key=f"next_{sample}"):
+                if "Ưa thích chung" not in rating:
+                    st.error("❌ Vui lòng chọn mức độ ưa thích chung trước khi tiếp tục.")
+                else:
+                    st.session_state.partial_results.append(rating)
+                    st.session_state.current_sample_index += 1
+                    st.rerun()
+
+            
         else:
             st.success("✅ Bạn đã hoàn thành tất cả các mẫu!")
             df_results = pd.DataFrame(st.session_state.partial_results)
