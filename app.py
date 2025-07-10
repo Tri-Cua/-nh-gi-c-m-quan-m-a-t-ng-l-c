@@ -26,12 +26,6 @@ def connect_to_google_sheets():
     stored in Streamlit's secrets management.
     """
     try:
-        # Load credentials from st.secrets
-        # In your local .streamlit/secrets.toml file, this would look like:
-        # [gcp_service_account]
-        # type = "service_account"
-        # project_id = "your-project-id"
-        # ... (copy all key-value pairs from your JSON file)
         creds_json = st.secrets["gcp_service_account"]
         sa = gspread.service_account_from_dict(creds_json)
         client = sa
@@ -52,21 +46,24 @@ def append_to_google_sheet(dataframe, sheet_id, client):
     try:
         sheet = client.open_by_key(sheet_id)
         worksheet = sheet.get_worksheet(0)
-
-        # Get existing headers from the first row of the sheet
         existing_headers = worksheet.row_values(1)
         
-        # If the sheet is empty (no headers), write the dataframe with headers
         if not existing_headers:
              set_with_dataframe(worksheet, dataframe)
              return
 
-        # Ensure the dataframe columns are in the same order as the sheet headers
-        # and filter out columns that are not in the sheet
+        # Ensure all columns from the dataframe exist in the sheet, add if they don't
+        # This makes adding the new ranking columns easier
+        new_headers = [h for h in dataframe.columns if h not in existing_headers]
+        if new_headers:
+            # Find the first empty column to append new headers
+            last_col = len(existing_headers)
+            worksheet.update(range_name=gspread.utils.rowcol_to_a1(1, last_col + 1), 
+                             values=[new_headers])
+            existing_headers.extend(new_headers)
+
         ordered_df = dataframe[existing_headers]
         values_to_append = ordered_df.values.tolist()
-
-        # Append new rows to the sheet
         worksheet.append_rows(values_to_append, value_input_option='USER_ENTERED')
 
     except gspread.exceptions.SpreadsheetNotFound:
@@ -81,12 +78,10 @@ def append_to_google_sheet(dataframe, sheet_id, client):
 def load_user_data():
     """
     Loads user login data from an Excel file.
-    NOTE: For a real application, consider a more secure way to store user data.
     """
     try:
         df = pd.read_excel("Thứ tự câu hỏi Mía tăng lực.xlsx")
         df.columns = ["username", "password", "order"]
-        # Ensure password is treated as a string for robust comparison
         df['password'] = df['password'].astype(str)
         return df
     except FileNotFoundError:
@@ -98,17 +93,11 @@ def load_user_data():
 
 def main():
     st.title("🔍 Đánh giá cảm quan sản phẩm")
-
-    # Load user data
     user_df = load_user_data()
 
     # --- SESSION STATE INITIALIZATION ---
-    if "logged_in" not in st.session_state:
-        st.session_state.logged_in = False
-    if "user" not in st.session_state:
-        st.session_state.user = None
     if "current_view" not in st.session_state:
-        st.session_state.current_view = "login" # Manages app flow: 'login', 'user_info', 'instructions', 'evaluation', 'thank_you'
+        st.session_state.current_view = "login" # Manages flow: 'login', 'user_info', 'instructions', 'evaluation', 'ranking', 'thank_you'
     if "partial_results" not in st.session_state:
         st.session_state.partial_results = []
     if "current_sample_index" not in st.session_state:
@@ -123,7 +112,6 @@ def main():
             submitted = st.form_submit_button("Đăng nhập")
 
             if submitted:
-                # Ensure password from input is also treated as string
                 password_str = str(password)
                 user_match = user_df[(user_df.username == username) & (user_df.password == password_str)]
                 if not user_match.empty:
@@ -137,42 +125,22 @@ def main():
 
     # --- VIEW: USER INFO ---
     elif st.session_state.current_view == "user_info":
-        st.subheader(f"Thông tin người tham gia (Chào {st.session_state.user})")
+        st.subheader(f"Thông tin người tham gia (Chào {st.session_state.get('user', '')})")
         with st.form("user_info_form"):
             full_name = st.text_input("Họ và tên:")
             gender = st.selectbox("Giới tính:", ["Nam", "Nữ", "Khác"])
             age_input = st.text_input("Tuổi (vui lòng nhập số):")
-            
-            occupation_options = [
-                "Sinh viên", "Nhân viên văn phòng", "Doanh nhân",
-                "Lao động tự do", "Nghề nghiệp khác"
-            ]
-            occupation = st.radio("Nghề nghiệp của bạn là gì?", occupation_options, index=None)
-            
-            frequency_options = [
-                "6 lần/ tuần", "5 lần/ tuần", "4 lần/ tuần", "3 lần/ tuần",
-                "2 lần/tuần", "1 lần/ tuần", "ít hơn 1 lần/ tuần"
-            ]
-            frequency = st.radio("Tần suất sử dụng nước tăng lực đóng lon của bạn?", frequency_options, index=None)
+            occupation = st.radio("Nghề nghiệp của bạn là gì?", ["Sinh viên", "Nhân viên văn phòng", "Doanh nhân", "Lao động tự do", "Nghề nghiệp khác"], index=None)
+            frequency = st.radio("Tần suất sử dụng nước tăng lực đóng lon của bạn?", ["6 lần/ tuần", "5 lần/ tuần", "4 lần/ tuần", "3 lần/ tuần", "2 lần/tuần", "1 lần/ tuần", "ít hơn 1 lần/ tuần"], index=None)
 
             submitted = st.form_submit_button("Tiếp tục")
             if submitted:
-                age = None
-                if age_input.isdigit() and int(age_input) > 0:
-                    age = int(age_input)
+                age = int(age_input) if age_input.isdigit() and int(age_input) > 0 else None
+                if not age: st.warning("⚠️ Tuổi phải là một số nguyên dương.")
+                if not all([full_name, occupation, frequency, age]):
+                    st.error("❌ Vui lòng điền đầy đủ tất cả thông tin.")
                 else:
-                    st.warning("⚠️ Tuổi phải là một số nguyên dương.")
-
-                if not all([full_name, occupation, frequency, age is not None]):
-                    st.error("❌ Vui lòng điền đầy đủ tất cả thông tin trước khi tiếp tục.")
-                else:
-                    st.session_state.user_info = {
-                        "full_name": full_name,
-                        "gender": gender,
-                        "age": age,
-                        "occupation": occupation,
-                        "frequency": frequency
-                    }
+                    st.session_state.user_info = {"full_name": full_name, "gender": gender, "age": age, "occupation": occupation, "frequency": frequency}
                     st.session_state.current_view = "instructions"
                     st.rerun()
 
@@ -183,136 +151,111 @@ def main():
         <p>Anh/Chị sẽ được nhận các mẫu nước tăng lực được gán mã số, vui lòng đánh giá lần lượt các mẫu từ trái sang phải theo thứ tự đã cung cấp. Anh/Chị vui lòng đánh giá mỗi mẫu theo trình tự sau:</p>
         <ol>
             <li>Dùng thử sản phẩm và đánh giá cường độ các tính chất <b>MÀU SẮC</b>, <b>MÙI</b> và <b>HƯƠNG VỊ</b>.</li>
-            <li>Cho biết cường độ của mỗi tính chất mà anh/chị cho là lý tưởng.</li>
-            <li>Nếu cường độ tính chất của mẫu phù hợp, chọn "lý tưởng = mẫu".</li>
-            <li>Cho biết độ ưa thích chung đối với mẫu.</li>
+            <li>Cho biết cường độ của mỗi tính chất mà anh/chị cho là lý tưởng (cường độ mà anh/chị mong muốn cho sản phẩm nước tăng lực này).</li>
+            <li>Nếu cường độ tính chất của mẫu phù hợp với mong muốn của anh/chị, vui lòng chọn cường độ lý tưởng bằng với cường độ tính chất của mẫu.</li>
+            <li>Cho biết độ ưa thích chung đối với mẫu sản phẩm này.</li>
         </ol>
         <p><b style='color:red;'>LƯU Ý:</b></p>
         <ul>
-            <li>Thanh vị bằng nước và bánh trước/sau mỗi mẫu.</li>
-            <li>Không trao đổi trong quá trình đánh giá.</li>
-            <li>Liên hệ thực nghiệm viên nếu cần.</li>
+            <li>Anh/chị lưu ý sử dụng nước và bánh để thanh vị trước và sau mỗi mẫu thử.</li>
+            <li>Anh/chị vui lòng không trao đổi trong quá trình đánh giá mẫu.</li>
+            <li>Anh/chị vui lòng liên hệ với thực nghiệm viên nếu có bất kì thắc mắc nào trong quá trình đánh giá.</li>
         </ul>
         """, unsafe_allow_html=True)
-
-        col1, col2, col3 = st.columns([1, 1.5, 1])
-        with col2:
-            if st.button("Bắt đầu đánh giá", use_container_width=True, type="primary"):
-                st.session_state.current_view = "evaluation"
-                st.rerun()
+        if st.button("Bắt đầu đánh giá", type="primary"):
+            st.session_state.current_view = "evaluation"
+            st.rerun()
 
     # --- VIEW: EVALUATION ---
     elif st.session_state.current_view == "evaluation":
-        # Auto-scroll to top whenever this view is loaded.
-        # We include the sample index in a comment to ensure the HTML is unique for each sample,
-        # forcing the component to re-render and the script to re-execute.
-        components.html(
-            f"""
-            <!-- Rerun counter: {st.session_state.current_sample_index} -->
-            <script>
-                window.parent.scrollTo({{ top: 0, behavior: 'smooth' }});
-            </script>
-            """,
-            height=0,
-        )
-
-        user_row = user_df[user_df.username == st.session_state.user]
-        if user_row.empty:
-            st.error("⚠️ Không tìm thấy thông tin mẫu cho tài khoản này.")
-            st.stop()
+        components.html(f"""<script>setTimeout(function(){{window.parent.scrollTo({{top:0,behavior:'smooth'}})}},150);</script><!--{st.session_state.current_sample_index}-->""", height=1)
+        user_row = user_df[user_df.username == st.session_state.get('user')]
+        if user_row.empty: st.error("⚠️ Không tìm thấy thông tin mẫu."); st.stop()
         
-        # Standardize hyphen character to avoid errors
         user_order_str = user_row["order"].values[0].replace("–", "-")
         sample_codes = [code.strip() for code in user_order_str.split("-")]
-
         idx = st.session_state.current_sample_index
+
         if idx < len(sample_codes):
             sample = sample_codes[idx]
             st.subheader(f"Đánh giá mẫu: {sample} ({idx + 1}/{len(sample_codes)})")
-
             with st.form(key=f"form_{sample}"):
                 rating = {}
                 attributes = ["Màu sắc", "Hương sản phẩm", "Vị ngọt", "Vị chua", "Vị đắng", "Vị chát", "Hậu vị"]
-                
                 for attr in attributes:
                     st.markdown(f"<h5>🔸 {attr}</h5>", unsafe_allow_html=True)
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        rating[f"{attr} - Cường độ mẫu"] = st.slider("Cường độ trong mẫu", 1, 100, 50, key=f"{sample}_{attr}_sample")
-                    with col2:
-                        rating[f"{attr} - Cường độ lý tưởng"] = st.slider("Cường độ lý tưởng", 1, 100, 50, key=f"{sample}_{attr}_ideal")
+                    c1, c2 = st.columns(2)
+                    rating[f"{attr} - Cường độ mẫu"] = c1.slider("Cường độ trong mẫu", 1, 100, 50, key=f"{sample}_{attr}_s")
+                    rating[f"{attr} - Cường độ lý tưởng"] = c2.slider("Cường độ lý tưởng", 1, 100, 50, key=f"{sample}_{attr}_i")
                     st.markdown("<hr style='margin: 0.5rem 0;'>", unsafe_allow_html=True)
                 
-                preference = st.radio(
-                    "Điểm ưa thích chung",
-                    options=[
-                        "1 - Cực kỳ không thích",
-                        "2 - Rất không thích",
-                        "3 - Không thích",
-                        "4 - Tương đối không thích",
-                        "5 - Không thích cũng không ghét",
-                        "6 - Tương đối thích",
-                        "7 - Thích",
-                        "8 - Rất thích",
-                        "9 - Cực kỳ thích"
-                    ],
-                    key=f"{sample}_pref", index=None
-                )
-
-                submitted = st.form_submit_button("Tiếp tục")
-                if submitted:
-                    if not preference:
-                        st.error("❌ Vui lòng chọn mức độ ưa thích chung trước khi tiếp tục.")
+                preference = st.radio("Điểm ưa thích chung", [f"{i} - {desc}" for i, desc in enumerate(["Cực kỳ không thích", "Rất không thích", "Không thích", "Tương đối không thích", "Không thích cũng không ghét", "Tương đối thích", "Thích", "Rất thích", "Cực kỳ thích"], 1)], key=f"{sample}_pref", index=None)
+                
+                if st.form_submit_button("Tiếp tục"):
+                    if not preference: st.error("❌ Vui lòng chọn mức độ ưa thích chung.");
                     else:
-                        # Add all data to the record
-                        full_record = {
-                            "username": st.session_state.user,
-                            "sample": sample,
-                            **st.session_state.user_info,
-                            "timestamp": datetime.now(timezone("Asia/Ho_Chi_Minh")).strftime("%Y-%m-%d %H:%M:%S"),
-                            **rating,
-                            "Ưa thích chung": int(preference.split(" ")[0])
-                        }
+                        full_record = {"username": st.session_state.user, "sample": sample, **st.session_state.user_info, "timestamp": datetime.now(timezone("Asia/Ho_Chi_Minh")).strftime("%Y-%m-%d %H:%M:%S"), **rating, "Ưa thích chung": int(preference.split(" ")[0])}
                         st.session_state.partial_results.append(full_record)
                         st.session_state.current_sample_index += 1
                         st.rerun()
         else:
-            # All samples are done, move to thank you page
-            st.session_state.current_view = "thank_you"
+            st.session_state.current_view = "ranking"
             st.rerun()
+
+    # --- VIEW: RANKING (NEW) ---
+    elif st.session_state.current_view == "ranking":
+        st.subheader("Thứ hạng các sản phẩm")
+        st.caption("Hãy sắp xếp các sản phẩm theo thứ tự ngon nhất đến kém ngon nhất")
+
+        user_row = user_df[user_df.username == st.session_state.get('user')]
+        user_order_str = user_row["order"].values[0].replace("–", "-")
+        sample_codes = sorted([code.strip() for code in user_order_str.split("-")])
+        
+        rank_titles = ["Ngon nhất", "Thứ hai", "Thứ ba", "Thứ 4", "Thứ 5"] # Add more if needed
+        num_ranks = len(sample_codes)
+        options = ["---Chọn---"] + sample_codes
+
+        with st.form("ranking_form"):
+            selections = {}
+            cols = st.columns(num_ranks)
+            for i in range(num_ranks):
+                with cols[i]:
+                    selections[rank_titles[i]] = st.selectbox(f"**{rank_titles[i]}**", options=options, key=f"rank_{i}")
+
+            if st.form_submit_button("Xác nhận và Hoàn thành"):
+                chosen_ranks = list(selections.values())
+                if "---Chọn---" in chosen_ranks:
+                    st.error("❌ Vui lòng xếp hạng cho tất cả các mục.")
+                elif len(set(chosen_ranks)) != len(chosen_ranks):
+                    st.error("❌ Mỗi sản phẩm chỉ được chọn một lần. Vui lòng kiểm tra lại.")
+                else:
+                    ranking_data = {f"Thứ hạng - {title}": rank for title, rank in selections.items()}
+                    for result in st.session_state.partial_results:
+                        result.update(ranking_data)
+                    st.session_state.current_view = "thank_you"
+                    st.success("Cảm ơn bạn đã hoàn thành phần xếp hạng!")
+                    st.rerun()
 
     # --- VIEW: THANK YOU & SUBMIT ---
     elif st.session_state.current_view == "thank_you":
         st.success("✅ Bạn đã hoàn thành tất cả các mẫu!")
         st.balloons()
-        
         df_results = pd.DataFrame(st.session_state.partial_results)
-
         st.subheader("Bảng kết quả của bạn")
         st.dataframe(df_results)
         
-        # Connect to Google Sheets and append data
         gspread_client = connect_to_google_sheets()
         if gspread_client:
-            # IMPORTANT: Replace with your actual Google Sheet ID
             sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
             st.info("Đang lưu kết quả vào Google Sheet...")
             append_to_google_sheet(df_results, sheet_id, gspread_client)
             st.success("✅ Đã lưu kết quả vào Google Sheet thành công!")
 
-        # Provide a download button
         towrite = io.BytesIO()
         df_results.to_excel(towrite, index=False, engine='openpyxl')
         towrite.seek(0)
-        st.download_button(
-            label="📥 Tải kết quả về máy",
-            data=towrite,
-            file_name=f"ket_qua_{st.session_state.user}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-        
+        st.download_button(label="📥 Tải kết quả về máy", data=towrite, file_name=f"ket_qua_{st.session_state.user}.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         st.info("Cảm ơn bạn đã tham gia! Vui lòng đóng cửa sổ này.")
-
 
 if __name__ == "__main__":
     main()
