@@ -8,6 +8,7 @@ import os
 from pytz import timezone
 import streamlit.components.v1 as components
 import json
+import time
 
 # --- CONFIGURATION & SETUP ---
 
@@ -27,29 +28,22 @@ def scroll_to_top():
     re-rendering the page.
     """
     # A unique key to force the script to re-run every time
-    unique_key = f"{st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)}"
+    unique_key = f"{st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)}-{time.time()}"
     
     js_code = f"""
-    <script>
-        // This function will be called with a unique key to prevent caching
-        function reliableScroll(key) {{
-            let attempts = 0;
-            const interval = setInterval(function() {{
-                // Send the standardized scroll-to-top message to the parent Streamlit frame
-                window.parent.postMessage({{
-                    'streamlit:scroll': {{'y': 0}}
-                }}, '*');
-
-                attempts++;
-                // Stop trying after 15 attempts (750ms) to avoid infinite loops
-                if (attempts > 15) {{
-                    clearInterval(interval);
-                }}
-            }}, 50); // Try to scroll every 50 milliseconds
-        }}
-        
-        // Call the function with the unique key
-        reliableScroll('{unique_key}');
+    <script id="scroll-script-{unique_key}">
+        (function() {{
+            if (window.self !== window.top) {{
+                let attempts = 0;
+                const intervalId = setInterval(function() {{
+                    window.parent.postMessage({{ 'streamlit:scroll': {{'y': 0}} }}, '*');
+                    attempts++;
+                    if (attempts > 20) {{
+                        clearInterval(intervalId);
+                    }}
+                }}, 50);
+            }}
+        }})();
     </script>
     """
     components.html(js_code, height=0)
