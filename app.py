@@ -17,9 +17,28 @@ st.set_page_config(
     layout="centered"
 )
 
+# --- HELPER FUNCTION ---
+def scroll_to_top():
+    """
+    Injects JavaScript to scroll to the top of the main page.
+    Uses a small delay (setTimeout) to ensure the page has re-rendered before scrolling.
+    The key is made unique by the view and sample index to force re-execution.
+    """
+    components.html(
+        f"""
+        <script>
+            setTimeout(function() {{
+                window.parent.scrollTo({{ top: 0, behavior: 'smooth' }});
+            }}, 150);
+        </script>
+        <!-- Unique key: {st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)} -->
+        """,
+        height=1,
+    )
+
+
 # --- GOOGLE SHEETS CONNECTION (IMPROVED & SECURE) ---
 
-# Function to connect to Google Sheets using Streamlit Secrets
 def connect_to_google_sheets():
     """
     Connects to Google Sheets using service account credentials
@@ -28,8 +47,7 @@ def connect_to_google_sheets():
     try:
         creds_json = st.secrets["gcp_service_account"]
         sa = gspread.service_account_from_dict(creds_json)
-        client = sa
-        return client
+        return sa
     except Exception as e:
         st.error(f"Lỗi kết nối với Google Sheets: Không thể tìm thấy thông tin xác thực trong st.secrets. Vui lòng kiểm tra lại. Lỗi: {e}")
         return None
@@ -37,7 +55,6 @@ def connect_to_google_sheets():
 def append_to_google_sheet(dataframe, sheet_id, client):
     """
     Appends a DataFrame to a specified Google Sheet without overwriting existing data.
-    This is much more efficient than reading/clearing/writing.
     """
     if client is None:
         st.error("Không thể ghi vào Google Sheet do kết nối không thành công.")
@@ -49,18 +66,19 @@ def append_to_google_sheet(dataframe, sheet_id, client):
         existing_headers = worksheet.row_values(1)
         
         if not existing_headers:
-             set_with_dataframe(worksheet, dataframe)
-             return
+            set_with_dataframe(worksheet, dataframe)
+            return
 
-        # Ensure all columns from the dataframe exist in the sheet, add if they don't
-        # This makes adding the new ranking columns easier
         new_headers = [h for h in dataframe.columns if h not in existing_headers]
         if new_headers:
-            # Find the first empty column to append new headers
             last_col = len(existing_headers)
-            worksheet.update(range_name=gspread.utils.rowcol_to_a1(1, last_col + 1), 
-                             values=[new_headers])
+            worksheet.update(range_name=gspread.utils.rowcol_to_a1(1, last_col + 1), values=[new_headers])
             existing_headers.extend(new_headers)
+
+        # Fill missing columns in dataframe with None to match sheet headers
+        for header in existing_headers:
+            if header not in dataframe.columns:
+                dataframe[header] = None
 
         ordered_df = dataframe[existing_headers]
         values_to_append = ordered_df.values.tolist()
@@ -97,7 +115,7 @@ def main():
 
     # --- SESSION STATE INITIALIZATION ---
     if "current_view" not in st.session_state:
-        st.session_state.current_view = "login" # Manages flow: 'login', 'user_info', 'instructions', 'evaluation', 'ranking', 'thank_you'
+        st.session_state.current_view = "login"
     if "partial_results" not in st.session_state:
         st.session_state.partial_results = []
     if "current_sample_index" not in st.session_state:
@@ -105,6 +123,7 @@ def main():
 
     # --- VIEW: LOGIN ---
     if st.session_state.current_view == "login":
+        # No scroll needed on the first page
         st.subheader("Đăng nhập")
         with st.form("login_form"):
             username = st.text_input("Tên đăng nhập")
@@ -125,6 +144,7 @@ def main():
 
     # --- VIEW: USER INFO ---
     elif st.session_state.current_view == "user_info":
+        scroll_to_top()
         st.subheader(f"Thông tin người tham gia (Chào {st.session_state.get('user', '')})")
         with st.form("user_info_form"):
             full_name = st.text_input("Họ và tên:")
@@ -146,6 +166,7 @@ def main():
 
     # --- VIEW: INSTRUCTIONS ---
     elif st.session_state.current_view == "instructions":
+        scroll_to_top()
         st.markdown("""
         <h2 style='text-align: center;'>Hướng dẫn cảm quan</h2>
         <p>Anh/Chị sẽ được nhận các mẫu nước tăng lực được gán mã số, vui lòng đánh giá lần lượt các mẫu từ trái sang phải theo thứ tự đã cung cấp. Anh/Chị vui lòng đánh giá mỗi mẫu theo trình tự sau:</p>
@@ -168,7 +189,7 @@ def main():
 
     # --- VIEW: EVALUATION ---
     elif st.session_state.current_view == "evaluation":
-        components.html(f"""<script>setTimeout(function(){{window.parent.scrollTo({{top:0,behavior:'smooth'}})}},150);</script><!--{st.session_state.current_sample_index}-->""", height=1)
+        scroll_to_top()
         user_row = user_df[user_df.username == st.session_state.get('user')]
         if user_row.empty: st.error("⚠️ Không tìm thấy thông tin mẫu."); st.stop()
         
@@ -189,7 +210,12 @@ def main():
                     rating[f"{attr} - Cường độ lý tưởng"] = c2.slider("Cường độ lý tưởng", 1, 100, 50, key=f"{sample}_{attr}_i")
                     st.markdown("<hr style='margin: 0.5rem 0;'>", unsafe_allow_html=True)
                 
-                preference = st.radio("Điểm ưa thích chung", [f"{i} - {desc}" for i, desc in enumerate(["Cực kỳ không thích", "Rất không thích", "Không thích", "Tương đối không thích", "Không thích cũng không ghét", "Tương đối thích", "Thích", "Rất thích", "Cực kỳ thích"], 1)], key=f"{sample}_pref", index=None)
+                preference_options = [
+                    "1 - Cực kỳ không thích", "2 - Rất không thích", "3 - Không thích",
+                    "4 - Tương đối không thích", "5 - Không thích cũng không ghét", "6 - Tương đối thích",
+                    "7 - Thích", "8 - Rất thích", "9 - Cực kỳ thích"
+                ]
+                preference = st.radio("Điểm ưa thích chung", preference_options, key=f"{sample}_pref", index=None)
                 
                 if st.form_submit_button("Tiếp tục"):
                     if not preference: st.error("❌ Vui lòng chọn mức độ ưa thích chung.");
@@ -202,8 +228,9 @@ def main():
             st.session_state.current_view = "ranking"
             st.rerun()
 
-    # --- VIEW: RANKING (NEW) ---
+    # --- VIEW: RANKING ---
     elif st.session_state.current_view == "ranking":
+        scroll_to_top()
         st.subheader("Thứ hạng các sản phẩm")
         st.caption("Hãy sắp xếp các sản phẩm theo thứ tự ngon nhất đến kém ngon nhất")
 
@@ -211,7 +238,7 @@ def main():
         user_order_str = user_row["order"].values[0].replace("–", "-")
         sample_codes = sorted([code.strip() for code in user_order_str.split("-")])
         
-        rank_titles = ["Ngon nhất", "Thứ hai", "Thứ ba", "Thứ 4", "Thứ 5"] # Add more if needed
+        rank_titles = ["Ngon nhất", "Thứ hai", "Thứ ba", "Thứ 4", "Thứ 5"]
         num_ranks = len(sample_codes)
         options = ["---Chọn---"] + sample_codes
 
@@ -230,17 +257,24 @@ def main():
                     st.error("❌ Mỗi sản phẩm chỉ được chọn một lần. Vui lòng kiểm tra lại.")
                 else:
                     ranking_data = {f"Thứ hạng - {title}": rank for title, rank in selections.items()}
-                    for result in st.session_state.partial_results:
-                        result.update(ranking_data)
+                    # Add ranking data to just one record to avoid duplication
+                    # A new single row could also be an option, but this is simpler
+                    if st.session_state.partial_results:
+                         st.session_state.partial_results[0].update(ranking_data)
+                    
                     st.session_state.current_view = "thank_you"
                     st.success("Cảm ơn bạn đã hoàn thành phần xếp hạng!")
                     st.rerun()
 
     # --- VIEW: THANK YOU & SUBMIT ---
     elif st.session_state.current_view == "thank_you":
+        scroll_to_top()
         st.success("✅ Bạn đã hoàn thành tất cả các mẫu!")
         st.balloons()
+        
+        # Re-create the dataframe with the final data including rankings
         df_results = pd.DataFrame(st.session_state.partial_results)
+        
         st.subheader("Bảng kết quả của bạn")
         st.dataframe(df_results)
         
