@@ -18,13 +18,14 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- HELPER FUNCTION (FINAL, MOST AGGRESSIVE METHOD) ---
+# --- HELPER FUNCTION (FINAL, MOST ROBUST METHOD) ---
 def scroll_to_top():
     """
-    Injects JavaScript to scroll to the top of the page.
-    This is the most aggressive and robust solution, combining setInterval and
-    requestAnimationFrame to ensure the scroll command is executed regardless
-    of the page's rendering state.
+    Injects JavaScript to scroll to the top of the page using a hidden anchor link.
+    This is the most robust solution as it leverages the browser's native anchor
+    navigation, which is more reliable than programmatic scrolling in complex frameworks
+    like Streamlit. The script repeatedly attempts to navigate to the anchor to
+    overcome any rendering timing issues.
     """
     # A unique key using the current time to ensure the script is never cached
     unique_key = f"{time.time()}"
@@ -37,32 +38,25 @@ def scroll_to_top():
                 const maxAttempts = 30; // Try for 1.5 seconds
                 let attempts = 0;
                 
-                // Function to send the scroll message
-                const doScroll = () => {{
-                    window.parent.postMessage({{
-                        'streamlit:scroll': {{'y': 0}}
-                    }}, '*');
-                }};
-
-                // Use setInterval to repeatedly try scrolling
                 const intervalId = setInterval(() => {{
-                    doScroll();
-                    attempts++;
-                    if (attempts >= maxAttempts) {{
-                        clearInterval(intervalId);
+                    try {{
+                        // This is a direct command to the parent window's navigation
+                        // to jump to the anchor we placed at the top of the page.
+                        window.parent.document.getElementById('top-of-page-anchor').click();
+                        attempts++;
+                        // Stop trying after a few successful attempts or timeout
+                        if (attempts >= maxAttempts) {{
+                            clearInterval(intervalId);
+                        }}
+                    }} catch (e) {{
+                        // If any error occurs (like the element not being found yet)
+                        // just continue trying until the timeout.
+                        attempts++;
+                         if (attempts >= maxAttempts) {{
+                            clearInterval(intervalId);
+                        }}
                     }}
                 }}, 50); // Try every 50ms
-
-                // Also use requestAnimationFrame for a different timing mechanism
-                let frameAttempts = 0;
-                function frameScroll() {{
-                    if (frameAttempts < maxAttempts) {{
-                        doScroll();
-                        frameAttempts++;
-                        requestAnimationFrame(frameScroll);
-                    }}
-                }}
-                requestAnimationFrame(frameScroll);
             }}
         }})();
     </script>
@@ -143,6 +137,9 @@ def load_user_data():
 # --- MAIN APP LOGIC ---
 
 def main():
+    # --- Create an invisible anchor at the top of the page ---
+    st.markdown('<a id="top-of-page-anchor" style="display: block; position: relative; top: -50px;"></a>', unsafe_allow_html=True)
+
     st.title("🔍 Đánh giá cảm quan sản phẩm")
     user_df = load_user_data()
 
