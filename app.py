@@ -17,29 +17,38 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- HELPER FUNCTION (FINAL, MOST RELIABLE METHOD) ---
+# --- HELPER FUNCTION (NEW, MORE ROBUST TIMING METHOD) ---
 def scroll_to_top():
     """
-    Injects JavaScript to send a message to the parent Streamlit frame,
-    requesting it to scroll to the top of the page (y-coordinate 0).
-    This is the most reliable method as it uses Streamlit's internal message passing.
-    A unique key is added to the component to ensure it re-executes on every rerun.
+    Injects JavaScript to scroll to the top of the page.
+    This version uses a setTimeout to delay the execution of the scroll command.
+    This is crucial because it gives the Streamlit frontend a moment to finish
+    re-rendering the page after the Python script reruns. Without the delay,
+    the scroll command might be sent before the page is ready, causing it to be ignored.
+    A unique key based on the current view and sample index is passed to the JS
+    function to prevent the browser from caching the script and ensure it runs every time.
     """
-    components.html(
-        f"""
-        <script>
-            window.parent.postMessage({{
-                'type': 'streamlit:setFrameHeight',
-                'height': 0
-            }}, '*');
-            window.parent.postMessage({{
-                'streamlit:scroll': {{'y': 0}}
-            }}, '*');
-        </script>
-        <!-- Unique key: {st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)} -->
-        """,
-        height=0
-    )
+    # A unique key to force the script to re-run
+    unique_key = f"{st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)}"
+    
+    js_code = f"""
+    <script>
+        // This function will be called with a unique key to prevent caching
+        function performScroll(key) {{
+            // Use setTimeout to wait for the page to finish rendering
+            setTimeout(function() {{
+                // Send a message to the parent (Streamlit) frame to scroll to the top
+                window.parent.postMessage({{
+                    'streamlit:scroll': 'top' 
+                }}, '*');
+            }}, 100); // A 100ms delay should be sufficient
+        }}
+        
+        // Call the function with the unique key
+        performScroll('{unique_key}');
+    </script>
+    """
+    components.html(js_code, height=1) # height=1 to ensure it renders
 
 
 # --- GOOGLE SHEETS CONNECTION (IMPROVED & SECURE) ---
@@ -294,4 +303,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
