@@ -17,17 +17,26 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- HELPER FUNCTION (NEW, MORE RELIABLE METHOD) ---
+# --- HELPER FUNCTION (FINAL, MOST RELIABLE METHOD) ---
 def scroll_to_top():
     """
-    Injects JavaScript to navigate to a hidden anchor link at the top of the page.
-    This is a more reliable method for scrolling in Streamlit than using scrollTo.
+    Injects JavaScript to send a message to the parent Streamlit frame,
+    requesting it to scroll to the top of the page (y-coordinate 0).
+    This is the most reliable method as it uses Streamlit's internal message passing.
+    A unique key is added to the component to ensure it re-executes on every rerun.
     """
     components.html(
-        """
+        f"""
         <script>
-            window.location.href = '#top';
+            window.parent.postMessage({{
+                'type': 'streamlit:setFrameHeight',
+                'height': 0
+            }}, '*');
+            window.parent.postMessage({{
+                'streamlit:scroll': {{'y': 0}}
+            }}, '*');
         </script>
+        <!-- Unique key: {st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)} -->
         """,
         height=0
     )
@@ -106,9 +115,6 @@ def load_user_data():
 # --- MAIN APP LOGIC ---
 
 def main():
-    # --- Create an invisible anchor at the top of the page ---
-    st.markdown('<a id="top"></a>', unsafe_allow_html=True)
-    
     st.title("🔍 Đánh giá cảm quan sản phẩm")
     user_df = load_user_data()
 
