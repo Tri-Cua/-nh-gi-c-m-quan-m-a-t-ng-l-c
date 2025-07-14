@@ -18,30 +18,51 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- HELPER FUNCTION (FINAL, MOST ROBUST METHOD) ---
+# --- HELPER FUNCTION (FINAL, MOST AGGRESSIVE METHOD) ---
 def scroll_to_top():
     """
     Injects JavaScript to scroll to the top of the page.
-    This is the most robust solution, using setInterval to repeatedly
-    try scrolling for a short duration. This overcomes timing issues where
-    the scroll command is sent before the Streamlit frontend has finished
-    re-rendering the page.
+    This is the most aggressive and robust solution, combining setInterval and
+    requestAnimationFrame to ensure the scroll command is executed regardless
+    of the page's rendering state.
     """
-    # A unique key to force the script to re-run every time
-    unique_key = f"{st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)}-{time.time()}"
+    # A unique key using the current time to ensure the script is never cached
+    unique_key = f"{time.time()}"
     
     js_code = f"""
     <script id="scroll-script-{unique_key}">
         (function() {{
+            // Ensure this code runs only inside the Streamlit iframe
             if (window.self !== window.top) {{
+                const maxAttempts = 30; // Try for 1.5 seconds
                 let attempts = 0;
-                const intervalId = setInterval(function() {{
-                    window.parent.postMessage({{ 'streamlit:scroll': {{'y': 0}} }}, '*');
+                
+                // Function to send the scroll message
+                const doScroll = () => {{
+                    window.parent.postMessage({{
+                        'streamlit:scroll': {{'y': 0}}
+                    }}, '*');
+                }};
+
+                // Use setInterval to repeatedly try scrolling
+                const intervalId = setInterval(() => {{
+                    doScroll();
                     attempts++;
-                    if (attempts > 20) {{
+                    if (attempts >= maxAttempts) {{
                         clearInterval(intervalId);
                     }}
-                }}, 50);
+                }}, 50); // Try every 50ms
+
+                // Also use requestAnimationFrame for a different timing mechanism
+                let frameAttempts = 0;
+                function frameScroll() {{
+                    if (frameAttempts < maxAttempts) {{
+                        doScroll();
+                        frameAttempts++;
+                        requestAnimationFrame(frameScroll);
+                    }}
+                }}
+                requestAnimationFrame(frameScroll);
             }}
         }})();
     </script>
