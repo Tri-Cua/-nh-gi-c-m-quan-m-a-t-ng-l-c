@@ -17,38 +17,42 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- HELPER FUNCTION (NEW, MORE ROBUST TIMING METHOD) ---
+# --- HELPER FUNCTION (FINAL, MOST ROBUST METHOD) ---
 def scroll_to_top():
     """
     Injects JavaScript to scroll to the top of the page.
-    This version uses a setTimeout to delay the execution of the scroll command.
-    This is crucial because it gives the Streamlit frontend a moment to finish
-    re-rendering the page after the Python script reruns. Without the delay,
-    the scroll command might be sent before the page is ready, causing it to be ignored.
-    A unique key based on the current view and sample index is passed to the JS
-    function to prevent the browser from caching the script and ensure it runs every time.
+    This is the most robust solution, using setInterval to repeatedly
+    try scrolling for a short duration. This overcomes timing issues where
+    the scroll command is sent before the Streamlit frontend has finished
+    re-rendering the page.
     """
-    # A unique key to force the script to re-run
+    # A unique key to force the script to re-run every time
     unique_key = f"{st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)}"
     
     js_code = f"""
     <script>
         // This function will be called with a unique key to prevent caching
-        function performScroll(key) {{
-            // Use setTimeout to wait for the page to finish rendering
-            setTimeout(function() {{
-                // Send a message to the parent (Streamlit) frame to scroll to the top
+        function reliableScroll(key) {{
+            let attempts = 0;
+            const interval = setInterval(function() {{
+                // Send the standardized scroll-to-top message to the parent Streamlit frame
                 window.parent.postMessage({{
-                    'streamlit:scroll': 'top' 
+                    'streamlit:scroll': {{'y': 0}}
                 }}, '*');
-            }}, 100); // A 100ms delay should be sufficient
+
+                attempts++;
+                // Stop trying after 15 attempts (750ms) to avoid infinite loops
+                if (attempts > 15) {{
+                    clearInterval(interval);
+                }}
+            }}, 50); // Try to scroll every 50 milliseconds
         }}
         
         // Call the function with the unique key
-        performScroll('{unique_key}');
+        reliableScroll('{unique_key}');
     </script>
     """
-    components.html(js_code, height=1) # height=1 to ensure it renders
+    components.html(js_code, height=0)
 
 
 # --- GOOGLE SHEETS CONNECTION (IMPROVED & SECURE) ---
