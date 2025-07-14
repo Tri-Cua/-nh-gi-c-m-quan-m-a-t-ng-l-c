@@ -17,23 +17,19 @@ st.set_page_config(
     layout="centered"
 )
 
-# --- HELPER FUNCTION ---
+# --- HELPER FUNCTION (NEW, MORE RELIABLE METHOD) ---
 def scroll_to_top():
     """
-    Injects JavaScript to scroll to the top of the main page.
-    Uses a small delay (setTimeout) to ensure the page has re-rendered before scrolling.
-    The key is made unique by the view and sample index to force re-execution.
+    Injects JavaScript to navigate to a hidden anchor link at the top of the page.
+    This is a more reliable method for scrolling in Streamlit than using scrollTo.
     """
     components.html(
-        f"""
+        """
         <script>
-            setTimeout(function() {{
-                window.parent.scrollTo({{ top: 0, behavior: 'smooth' }});
-            }}, 150);
+            window.location.href = '#top';
         </script>
-        <!-- Unique key: {st.session_state.get('current_view', 'login')}-{st.session_state.get('current_sample_index', 0)} -->
         """,
-        height=1,
+        height=0
     )
 
 
@@ -110,6 +106,9 @@ def load_user_data():
 # --- MAIN APP LOGIC ---
 
 def main():
+    # --- Create an invisible anchor at the top of the page ---
+    st.markdown('<a id="top"></a>', unsafe_allow_html=True)
+    
     st.title("🔍 Đánh giá cảm quan sản phẩm")
     user_df = load_user_data()
 
@@ -123,7 +122,6 @@ def main():
 
     # --- VIEW: LOGIN ---
     if st.session_state.current_view == "login":
-        # No scroll needed on the first page
         st.subheader("Đăng nhập")
         with st.form("login_form"):
             username = st.text_input("Tên đăng nhập")
@@ -257,8 +255,6 @@ def main():
                     st.error("❌ Mỗi sản phẩm chỉ được chọn một lần. Vui lòng kiểm tra lại.")
                 else:
                     ranking_data = {f"Thứ hạng - {title}": rank for title, rank in selections.items()}
-                    # Add ranking data to just one record to avoid duplication
-                    # A new single row could also be an option, but this is simpler
                     if st.session_state.partial_results:
                          st.session_state.partial_results[0].update(ranking_data)
                     
@@ -272,7 +268,6 @@ def main():
         st.success("✅ Bạn đã hoàn thành tất cả các mẫu!")
         st.balloons()
         
-        # Re-create the dataframe with the final data including rankings
         df_results = pd.DataFrame(st.session_state.partial_results)
         
         st.subheader("Bảng kết quả của bạn")
