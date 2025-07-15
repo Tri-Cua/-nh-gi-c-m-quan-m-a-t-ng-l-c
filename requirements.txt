@@ -1,6 +1,7 @@
-streamlit
+dash
+dash-bootstrap-components
 pandas
 openpyxl
 gspread
-gspread_dataframe
-oauth2client
+gspread-dataframe
+pytz
