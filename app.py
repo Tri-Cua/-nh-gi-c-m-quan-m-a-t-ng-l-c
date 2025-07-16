@@ -188,10 +188,8 @@ def render_page_content(session_data):
         sample_codes = [code.strip() for code in user_order_str.split("-")]
         idx = session_data['sample_index']
 
-        if idx >= len(sample_codes):
-            session_data['current_view'] = 'ranking'
-            return dbc.Spinner(color="primary"), session_data, datetime.now().isoformat()
-
+        # This view should only render if there are samples left.
+        # The logic to switch views is now handled cleanly in the callback.
         sample = sample_codes[idx]
         attributes = ["Màu sắc", "Hương sản phẩm", "Vị ngọt", "Vị chua", "Vị đắng", "Vị chát", "Hậu vị"]
         
@@ -273,6 +271,7 @@ def render_page_content(session_data):
 )
 def handle_login(n_clicks, username, password, session_data):
     # This callback only runs when the button is clicked.
+    if not n_clicks: return no_update, ""
     user_df = load_user_data()
     if user_df is None: 
         return no_update, dbc.Alert("Lỗi file dữ liệu người dùng.", color="danger")
@@ -300,6 +299,7 @@ def handle_login(n_clicks, username, password, session_data):
 )
 def handle_user_info(n_clicks, name, gender, age, occ, freq, session_data):
     # This callback only runs when the button is clicked.
+    if not n_clicks: return no_update, ""
     if not all([name, gender, age, occ, freq]):
         return no_update, dbc.Alert("❌ Vui lòng điền đầy đủ tất cả thông tin.", color="warning")
     
@@ -317,6 +317,7 @@ def handle_user_info(n_clicks, name, gender, age, occ, freq, session_data):
     prevent_initial_call=True
 )
 def start_evaluation(n_clicks, session_data):
+    if not n_clicks: return no_update
     session_data['current_view'] = 'evaluation'
     return session_data
 
@@ -335,6 +336,7 @@ def start_evaluation(n_clicks, session_data):
 )
 def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, session_data, results_data):
     # This callback only runs when the button is clicked.
+    if not n_clicks: return no_update, no_update, ""
     if not preference:
         return no_update, no_update, dbc.Alert("❌ Vui lòng chọn mức độ ưa thích chung.", color="warning")
     
@@ -381,6 +383,7 @@ def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, s
 )
 def handle_ranking(n_clicks, ranks, session_data, results_data):
     # This callback only runs when the button is clicked.
+    if not n_clicks: return no_update, no_update, ""
     if not all(ranks):
         return no_update, no_update, dbc.Alert("❌ Vui lòng xếp hạng cho tất cả các mục.", color="warning")
     if len(set(ranks)) != len(ranks):
@@ -409,6 +412,7 @@ def handle_ranking(n_clicks, ranks, session_data, results_data):
     prevent_initial_call=True,
 )
 def download_results(n_clicks, results_data, session_data):
+    if not n_clicks: return no_update
     df = pd.DataFrame(results_data)
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
