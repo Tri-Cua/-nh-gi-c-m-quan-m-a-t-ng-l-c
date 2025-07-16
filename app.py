@@ -133,7 +133,7 @@ def render_page_content(session_data):
                 dbc.Input(id='login-username', placeholder='Tên đăng nhập', type='text', className="mb-3"),
                 dbc.Input(id='login-password', placeholder='Mật khẩu', type='password', className="mb-3"),
                 dbc.Button("Đăng nhập", id='login-button', color='primary', n_clicks=0, className="w-100"),
-                html.Div(id='login-error', className="mt-3")
+                html.Div(id='login-error', className="mt-3") # Error message will be placed here
             ])
         ]), width=12, md=6, lg=4), justify="center")
         return login_layout, session_data, no_update
@@ -153,7 +153,7 @@ def render_page_content(session_data):
                 html.P("Tần suất sử dụng nước tăng lực đóng lon của bạn?"),
                 dbc.RadioItems(id='info-frequency', options=["6 lần/ tuần", "5 lần/ tuần", "4 lần/ tuần", "3 lần/ tuần", "2 lần/tuần", "1 lần/ tuần", "ít hơn 1 lần/ tuần"], inline=True, className="mb-3"),
                 dbc.Button("Tiếp tục", id='info-button', color='primary', n_clicks=0, className="w-100"),
-                html.Div(id='info-error', className="mt-3")
+                html.Div(id='info-error', className="mt-3") # Error message will be placed here
             ])
         ])
         return info_layout, session_data, datetime.now().isoformat() # Trigger scroll
@@ -188,8 +188,10 @@ def render_page_content(session_data):
         sample_codes = [code.strip() for code in user_order_str.split("-")]
         idx = session_data['sample_index']
 
-        # This view should only render if there are samples left to evaluate.
-        # The logic to switch to the 'ranking' view is now in the handle_evaluation callback.
+        if idx >= len(sample_codes):
+            session_data['current_view'] = 'ranking'
+            return dbc.Spinner(color="primary"), session_data, datetime.now().isoformat()
+
         sample = sample_codes[idx]
         attributes = ["Màu sắc", "Hương sản phẩm", "Vị ngọt", "Vị chua", "Vị đắng", "Vị chát", "Hậu vị"]
         
@@ -214,7 +216,7 @@ def render_page_content(session_data):
             dbc.RadioItems(id='eval-preference', options=preference_options, className="mb-3")
         ]))
         eval_form.append(dbc.Button("Tiếp tục", id='eval-button', color='primary', n_clicks=0, className="w-100"))
-        eval_form.append(html.Div(id='eval-error', className="mt-3"))
+        eval_form.append(html.Div(id='eval-error', className="mt-3")) # Error message will be placed here
 
         return html.Div(eval_form), session_data, datetime.now().isoformat() # Trigger scroll
 
@@ -240,7 +242,7 @@ def render_page_content(session_data):
             html.P("Hãy sắp xếp các sản phẩm theo thứ tự ngon nhất đến kém ngon nhất", className="text-muted"),
             dbc.Row(cols, className="g-3"),
             dbc.Button("Xác nhận và Hoàn thành", id='rank-button', color='success', n_clicks=0, className="mt-4 w-100"),
-            html.Div(id='rank-error', className="mt-3")
+            html.Div(id='rank-error', className="mt-3") # Error message will be placed here
         ])
         return ranking_layout, session_data, datetime.now().isoformat() # Trigger scroll
     
@@ -270,15 +272,18 @@ def render_page_content(session_data):
     prevent_initial_call=True
 )
 def handle_login(n_clicks, username, password, session_data):
+    # This callback only runs when the button is clicked.
     user_df = load_user_data()
-    if user_df is None: return no_update, dbc.Alert("Lỗi file dữ liệu người dùng.", color="danger")
+    if user_df is None: 
+        return no_update, dbc.Alert("Lỗi file dữ liệu người dùng.", color="danger")
     
     user_match = user_df[(user_df.username == username) & (user_df.password == str(password))]
     if not user_match.empty:
         session_data['current_view'] = 'user_info'
         session_data['user'] = username
-        return session_data, dbc.Alert("Đăng nhập thành công!", color="success")
+        return session_data, "" # Return empty string to clear any previous errors
     else:
+        # Only show error if the button was clicked
         return no_update, dbc.Alert("Sai tên đăng nhập hoặc mật khẩu.", color="danger")
 
 @callback(
@@ -294,6 +299,7 @@ def handle_login(n_clicks, username, password, session_data):
     prevent_initial_call=True
 )
 def handle_user_info(n_clicks, name, gender, age, occ, freq, session_data):
+    # This callback only runs when the button is clicked.
     if not all([name, gender, age, occ, freq]):
         return no_update, dbc.Alert("❌ Vui lòng điền đầy đủ tất cả thông tin.", color="warning")
     
@@ -302,7 +308,7 @@ def handle_user_info(n_clicks, name, gender, age, occ, freq, session_data):
         "occupation": occ, "frequency": freq
     }
     session_data['current_view'] = 'instructions'
-    return session_data, None
+    return session_data, "" # Return empty string to clear any previous errors
 
 @callback(
     Output('session-store', 'data', allow_duplicate=True),
@@ -328,6 +334,7 @@ def start_evaluation(n_clicks, session_data):
     prevent_initial_call=True
 )
 def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, session_data, results_data):
+    # This callback only runs when the button is clicked.
     if not preference:
         return no_update, no_update, dbc.Alert("❌ Vui lòng chọn mức độ ưa thích chung.", color="warning")
     
@@ -357,11 +364,10 @@ def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, s
     
     session_data['sample_index'] += 1
     
-    # **FIX**: Check if all samples have been evaluated and change the view.
     if session_data['sample_index'] >= len(sample_codes):
         session_data['current_view'] = 'ranking'
 
-    return session_data, results_data, None
+    return session_data, results_data, "" # Return empty string to clear any previous errors
 
 @callback(
     Output('session-store', 'data', allow_duplicate=True),
@@ -374,6 +380,7 @@ def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, s
     prevent_initial_call=True
 )
 def handle_ranking(n_clicks, ranks, session_data, results_data):
+    # This callback only runs when the button is clicked.
     if not all(ranks):
         return no_update, no_update, dbc.Alert("❌ Vui lòng xếp hạng cho tất cả các mục.", color="warning")
     if len(set(ranks)) != len(ranks):
@@ -382,11 +389,9 @@ def handle_ranking(n_clicks, ranks, session_data, results_data):
     rank_titles = ["Ngon nhất", "Thứ hai", "Thứ ba", "Thứ 4", "Thứ 5"]
     ranking_data = {f"Thứ hạng - {rank_titles[i]}": rank for i, rank in enumerate(ranks)}
     
-    # Add ranking data to the first record
     if results_data:
         results_data[0].update(ranking_data)
         
-    # Save to Google Sheet now
     client = connect_to_google_sheets()
     if client:
         df_results = pd.DataFrame(results_data)
@@ -394,7 +399,7 @@ def handle_ranking(n_clicks, ranks, session_data, results_data):
         append_to_google_sheet(df_results, sheet_id, client)
         
     session_data['current_view'] = 'thank_you'
-    return session_data, results_data, None
+    return session_data, results_data, "" # Return empty string to clear any previous errors
 
 @callback(
     Output("download-dataframe-xlsx", "data"),
