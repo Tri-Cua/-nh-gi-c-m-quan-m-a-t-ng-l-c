@@ -48,10 +48,11 @@ def connect_to_google_sheets():
 def append_to_google_sheet(dataframe, sheet_id, client):
     """
     Appends a DataFrame to a specified Google Sheet.
+    Returns True on success, False on failure.
     """
     if client is None: 
         print("Không thể ghi vào Google Sheet do kết nối không thành công.")
-        return
+        return False
     try:
         sheet = client.open_by_key(sheet_id)
         worksheet = sheet.get_worksheet(0)
@@ -60,7 +61,7 @@ def append_to_google_sheet(dataframe, sheet_id, client):
         if not existing_headers:
             set_with_dataframe(worksheet, dataframe)
             print("Đã lưu kết quả (với header mới) vào Google Sheet thành công!")
-            return
+            return True
 
         # Ensure all columns from the dataframe exist in the sheet, add if they don't
         new_headers = [h for h in dataframe.columns if h not in existing_headers]
@@ -78,8 +79,10 @@ def append_to_google_sheet(dataframe, sheet_id, client):
         values_to_append = ordered_df.values.tolist()
         worksheet.append_rows(values_to_append, value_input_option='USER_ENTERED')
         print("Đã lưu kết quả vào Google Sheet thành công!")
+        return True
     except Exception as e:
         print(f"Lỗi khi ghi vào Google Sheet: {e}")
+        return False
 
 # --- APP LAYOUT ---
 # The layout is the structure of your web page.
@@ -125,8 +128,12 @@ def render_page_content(session_data):
         }
 
     view = session_data.get('current_view')
+    
+    # **IMPROVEMENT**: Add checks for required files at the beginning
+    if not os.path.exists("credentials.json"):
+        return dbc.Alert("Lỗi nghiêm trọng: Không tìm thấy file 'credentials.json'. Vui lòng đảm bảo file này tồn tại trong cùng thư mục với ứng dụng.", color="danger"), no_update, no_update
+        
     user_df = load_user_data()
-
     if user_df is None:
         return dbc.Alert("Lỗi: Không tìm thấy file 'Thứ tự câu hỏi Mía tăng lực.xlsx'. Vui lòng đảm bảo file này tồn tại trong cùng thư mục với ứng dụng.", color="danger"), no_update, no_update
 
@@ -364,12 +371,20 @@ def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, s
         "Ưa thích chung": int(preference.split(" ")[0])
     }
     
-    # Save this single record to Google Sheets immediately
+    # **IMPROVEMENT**: Save this single record to Google Sheets immediately
     client = connect_to_google_sheets()
     if client:
         df_single_record = pd.DataFrame([full_record])
         sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
-        append_to_google_sheet(df_single_record, sheet_id, client)
+        success = append_to_google_sheet(df_single_record, sheet_id, client)
+        if not success:
+            # If saving fails, show an error and do not proceed
+            error_msg = "Lỗi khi lưu vào Google Sheet. Vui lòng kiểm tra quyền chia sẻ và kết nối."
+            return no_update, no_update, dbc.Alert(error_msg, color="danger")
+    else:
+        # If connection fails, show an error and do not proceed
+        error_msg = "Lỗi kết nối Google Sheets. Vui lòng kiểm tra file credentials.json."
+        return no_update, no_update, dbc.Alert(error_msg, color="danger")
 
     if results_data is None: results_data = []
     results_data.append(full_record)
@@ -404,6 +419,7 @@ def handle_ranking(n_clicks, ranks, session_data, results_data):
     # Create a separate record for the ranking
     ranking_record = {
         "username": session_data['user'],
+        "sample": "Xếp hạng tổng thể", # Use a special value for sample
         **session_data['user_info'],
         "timestamp": datetime.now(timezone("Asia/Ho_Chi_Minh")).strftime("%Y-%m-%d %H:%M:%S"),
         **ranking_data
@@ -413,11 +429,17 @@ def handle_ranking(n_clicks, ranks, session_data, results_data):
     if client:
         df_ranking = pd.DataFrame([ranking_record])
         sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
-        append_to_google_sheet(df_ranking, sheet_id, client)
+        success = append_to_google_sheet(df_ranking, sheet_id, client)
+        if not success:
+            error_msg = "Lỗi khi lưu bảng xếp hạng vào Google Sheet."
+            return no_update, no_update, dbc.Alert(error_msg, color="danger")
+    else:
+        error_msg = "Lỗi kết nối Google Sheets."
+        return no_update, no_update, dbc.Alert(error_msg, color="danger")
     
     # Also add the ranking data to the local results for the download button
-    if results_data:
-        results_data.append(ranking_record)
+    if results_data is None: results_data = []
+    results_data.append(ranking_record)
         
     session_data['current_view'] = 'thank_you'
     return session_data, results_data, ""
