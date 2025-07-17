@@ -112,8 +112,9 @@ app.layout = dbc.Container([
     Output('session-store', 'data'),
     Output('scroll-trigger', 'children'),
     Input('session-store', 'data'),
+    State('results-store', 'data')
 )
-def render_page_content(session_data):
+def render_page_content(session_data, results_data):
     """
     This is the main "router" of the app. It decides which view to show
     based on the 'current_view' value in the session data.
@@ -129,7 +130,6 @@ def render_page_content(session_data):
 
     view = session_data.get('current_view')
     
-    # **IMPROVEMENT**: Add checks for required files at the beginning
     if not os.path.exists("credentials.json"):
         return dbc.Alert("Lỗi nghiêm trọng: Không tìm thấy file 'credentials.json'. Vui lòng đảm bảo file này tồn tại trong cùng thư mục với ứng dụng.", color="danger"), no_update, no_update
         
@@ -145,7 +145,7 @@ def render_page_content(session_data):
                 dbc.Input(id='login-username', placeholder='Tên đăng nhập', type='text', className="mb-3"),
                 dbc.Input(id='login-password', placeholder='Mật khẩu', type='password', className="mb-3"),
                 dbc.Button("Đăng nhập", id='login-button', color='primary', n_clicks=0, className="w-100"),
-                html.Div(id='login-error', className="mt-3") # Error message will be placed here
+                html.Div(id='login-error', className="mt-3")
             ])
         ]), width=12, md=6, lg=4), justify="center")
         return login_layout, session_data, no_update
@@ -165,7 +165,7 @@ def render_page_content(session_data):
                 html.P("Tần suất sử dụng nước tăng lực đóng lon của bạn?"),
                 dbc.RadioItems(id='info-frequency', options=["6 lần/ tuần", "5 lần/ tuần", "4 lần/ tuần", "3 lần/ tuần", "2 lần/tuần", "1 lần/ tuần", "ít hơn 1 lần/ tuần"], inline=True, className="mb-3"),
                 dbc.Button("Tiếp tục", id='info-button', color='primary', n_clicks=0, className="w-100"),
-                html.Div(id='info-error', className="mt-3") # Error message will be placed here
+                html.Div(id='info-error', className="mt-3")
             ])
         ])
         return info_layout, session_data, datetime.now().isoformat() # Trigger scroll
@@ -260,13 +260,33 @@ def render_page_content(session_data):
     
     # --- RENDER THANK YOU VIEW ---
     elif view == 'thank_you':
-        thank_you_layout = dbc.Alert([
-            html.H4("✅ Bạn đã hoàn thành tất cả các mẫu!", className="alert-heading"),
-            html.P("Cảm ơn bạn đã tham gia! Kết quả của bạn đã được ghi nhận."),
-            html.Hr(),
+        # **IMPROVEMENT**: The logic for saving and showing status is now here.
+        
+        # 1. Connect to Google Sheets
+        client = connect_to_google_sheets()
+        save_status_alert = None
+
+        if not client:
+            save_status_alert = dbc.Alert("Lỗi kết nối Google Sheets. Vui lòng kiểm tra file credentials.json.", color="danger")
+        else:
+            # 2. Prepare final data and save
+            df_results = pd.DataFrame(results_data)
+            sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
+            success = append_to_google_sheet(df_results, sheet_id, client)
+            if success:
+                save_status_alert = dbc.Alert("Lưu vào Google Sheet thành công!", color="success")
+            else:
+                save_status_alert = dbc.Alert("Lỗi khi lưu vào Google Sheet. Vui lòng kiểm tra quyền chia sẻ và kết nối.", color="danger")
+
+        thank_you_layout = html.Div([
+            dbc.Alert([
+                html.H4("✅ Bạn đã hoàn thành tất cả các mẫu!", className="alert-heading"),
+                html.P("Cảm ơn bạn đã tham gia!"),
+            ], color="success"),
+            save_status_alert, # Show the save status here
             dbc.Button("Tải kết quả về máy", id="download-button", color="info"),
             dcc.Download(id="download-dataframe-xlsx")
-        ], color="success")
+        ])
         return thank_you_layout, session_data, datetime.now().isoformat() # Trigger scroll
 
     return html.Div("Lỗi: Chế độ xem không xác định."), session_data, no_update
@@ -371,21 +391,6 @@ def handle_evaluation(n_clicks, sample_vals, ideal_vals, attr_ids, preference, s
         "Ưa thích chung": int(preference.split(" ")[0])
     }
     
-    # **IMPROVEMENT**: Save this single record to Google Sheets immediately
-    client = connect_to_google_sheets()
-    if client:
-        df_single_record = pd.DataFrame([full_record])
-        sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
-        success = append_to_google_sheet(df_single_record, sheet_id, client)
-        if not success:
-            # If saving fails, show an error and do not proceed
-            error_msg = "Lỗi khi lưu vào Google Sheet. Vui lòng kiểm tra quyền chia sẻ và kết nối."
-            return no_update, no_update, dbc.Alert(error_msg, color="danger")
-    else:
-        # If connection fails, show an error and do not proceed
-        error_msg = "Lỗi kết nối Google Sheets. Vui lòng kiểm tra file credentials.json."
-        return no_update, no_update, dbc.Alert(error_msg, color="danger")
-
     if results_data is None: results_data = []
     results_data.append(full_record)
     
@@ -424,20 +429,7 @@ def handle_ranking(n_clicks, ranks, session_data, results_data):
         "timestamp": datetime.now(timezone("Asia/Ho_Chi_Minh")).strftime("%Y-%m-%d %H:%M:%S"),
         **ranking_data
     }
-        
-    client = connect_to_google_sheets()
-    if client:
-        df_ranking = pd.DataFrame([ranking_record])
-        sheet_id = "13XRlhwoQY-ErLy75l8B0fOv-KyIoO6p_VlzkoUnfUl0"
-        success = append_to_google_sheet(df_ranking, sheet_id, client)
-        if not success:
-            error_msg = "Lỗi khi lưu bảng xếp hạng vào Google Sheet."
-            return no_update, no_update, dbc.Alert(error_msg, color="danger")
-    else:
-        error_msg = "Lỗi kết nối Google Sheets."
-        return no_update, no_update, dbc.Alert(error_msg, color="danger")
     
-    # Also add the ranking data to the local results for the download button
     if results_data is None: results_data = []
     results_data.append(ranking_record)
         
